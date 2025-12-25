@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QUINUA GAMER V2</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+        import { getFirestore, doc, setDoc, onSnapshot, collection, query, orderBy, addDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+        // CONFIGURACIÓN REAL DE QUINUAGAMER
+        const firebaseConfig = {
+  apiKey: "AIzaSyCRzww5984lJH6HjlZwpCdVLmrllNjAtP4",
+  authDomain: "quinuagamer-fe183.firebaseapp.com",
+  projectId: "quinuagamer-fe183",
+  storageBucket: "quinuagamer-fe183.firebasestorage.app",
+  messagingSenderId: "266625632890",
+  appId: "1:266625632890:web:1e388e0624332a1878c9c3",
+  measurementId: "G-59YCYJLH5F"
+};
+
+        // Variables Globales Sincronizadas
+        window.ventas = [];
+        window.estadoCabinas = [];
+
+        onSnapshot(doc(db, "sistema", "cabinas"), (doc) => {
+            if (doc.exists()) {
+                window.estadoCabinas = doc.data().estado;
+                renderCabinas();
+            } else {
+                const inicial = Array(6).fill().map((_, i) => ({
+                    id: i + 1, inicio: null, tipo: 'libre', tiempoContratado: 0, finalizado: false
+                }));
+                setDoc(doc(db, "sistema", "cabinas"), { estado: inicial });
+            }
+        });
+
+        const qVentas = query(collection(db, "ventas"), orderBy("fecha", "desc"));
+        onSnapshot(qVentas, (snapshot) => {
+            window.ventas = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+            actualizarInterfaz();
+        });
+
+        window.syncCabinas = async (nuevoEstado) => { await setDoc(doc(db, "sistema", "cabinas"), { estado: nuevoEstado }); };
+        window.addVentaNube = async (venta) => { await addDoc(collection(db, "ventas"), venta); };
+        window.deleteVentaNube = async (id) => { await deleteDoc(doc(db, "ventas"), id); };
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=JetBrains+Mono:wght@700&display=swap');
+        
+        body { 
+            font-family: 'Plus Jakarta Sans', sans-serif; 
+            background: #f1f5f9; 
+            color: #1e293b;
+        }
+
+        .timer-font { font-family: 'JetBrains Mono', monospace; }
+
+        .tarjeta-premium {
+            background: #ffffff;
+            border-radius: 24px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 10px 15px -3px rgba(0, 0, 0, 0.03);
+            border: 1px solid rgba(255,255,255,0.7);
+            transition: transform 0.2s ease;
+        }
+
+        .header-azul { background: linear-gradient(135deg, #2563eb, #1e40af); }
+        .header-verde { background: linear-gradient(135deg, #10b981, #059669); }
+        .header-rojo { background: linear-gradient(135deg, #ef4444, #b91c1c); }
+        .header-purpura { background: linear-gradient(135deg, #8b5cf6, #6d28d9); }
+
+        .modal-fondo {
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(12px);
+            display: none; position: fixed; inset: 0; z-index: 100;
+            align-items: center; justify-content: center;
+        }
+        .modal-fondo.active { display: flex; }
+
+        .scroll-tech::-webkit-scrollbar { width: 4px; }
+        .scroll-tech::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+    <div id="modalMaster" class="modal-fondo">
+        <div class="bg-white p-10 rounded-[40px] max-w-lg w-[90%] shadow-2xl border border-slate-100" id="modalBody"></div>
+    </div>
+
+    <header class="container mx-auto mb-10 flex flex-col md:flex-row justify-between items-center gap-6">
+        <div class="flex items-center gap-5">
+            <div class="bg-blue-600 p-4 rounded-3xl text-white shadow-xl shadow-blue-200">
+                <i data-lucide="layout-dashboard" class="w-8 h-8"></i>
+            </div>
+            <div>
+                <h1 class="text-3xl font-800 tracking-tighter text-slate-900 leading-none uppercase">QUINUAGAMER</h1>
+                <p class="text-[11px] font-bold text-blue-600 uppercase tracking-[0.2em] mt-1">Gestión Premium</p>
+            </div>
+        </div>
+
+        <div class="bg-white px-10 py-4 rounded-[30px] shadow-sm border border-slate-200 text-center">
+            <p id="reloj-global" class="text-4xl font-800 timer-font text-slate-800">00:00:00</p>
+            <p id="fecha-actual" class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Actualizando...</p>
+        </div>
+
+        <div class="flex items-center gap-4">
+            <div class="text-right px-4 border-r border-slate-200">
+                <p class="text-[10px] font-bold text-slate-400 uppercase">Caja Hoy</p>
+                <p id="total-caja" class="text-2xl font-800 text-emerald-600 timer-font">S/ 0.00</p>
+            </div>
+            <button onclick="pedirPass('reportes')" class="bg-slate-900 text-white px-8 py-4 rounded-2xl font-800 flex items-center gap-3 hover:bg-slate-800 transition-all shadow-lg">
+                <i data-lucide="lock" class="w-5 h-5 text-yellow-400"></i> Reportes
+            </button>
+        </div>
+    </header>
+
+    <main class="container mx-auto">
+        <div id="vista-dashboard" class="grid grid-cols-1 lg:grid-cols-4 gap-10">
+            <div class="lg:col-span-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8" id="contenedor-cabinas"></div>
+
+            <div class="space-y-8">
+                <div class="tarjeta-premium">
+                    <div class="header-azul p-5 flex items-center gap-3">
+                        <i data-lucide="printer" class="text-white w-5 h-5"></i>
+                        <h2 class="text-white font-800 text-xs uppercase tracking-widest">Impresiones</h2>
+                    </div>
+                    <div class="p-6 space-y-4">
+                        <button onclick="modalImpresion('B/N', 0.30)" class="w-full bg-slate-50 border border-slate-100 p-4 rounded-2xl flex justify-between items-center hover:bg-blue-600 hover:text-white transition-all group">
+                            <span class="font-800 text-sm">B/N Texto</span>
+                            <span class="bg-blue-600 text-white group-hover:bg-white group-hover:text-blue-600 px-3 py-1 rounded-lg text-[10px] font-900">S/ 0.30</span>
+                        </button>
+                        <button onclick="modalImpresion('COLOR', 1.00)" class="w-full bg-slate-50 border border-slate-100 p-4 rounded-2xl flex justify-between items-center hover:bg-emerald-500 hover:text-white transition-all group">
+                            <span class="font-800 text-sm">Color HD</span>
+                            <span class="bg-emerald-500 text-white group-hover:bg-white group-hover:text-emerald-600 px-3 py-1 rounded-lg text-[10px] font-900">S/ 1.00</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="tarjeta-premium flex flex-col h-[550px]">
+                    <div class="header-purpura p-5 flex items-center gap-3">
+                        <i data-lucide="history" class="text-white w-5 h-5"></i>
+                        <h2 class="text-white font-800 text-xs uppercase tracking-widest">Historial Activo</h2>
+                    </div>
+                    <div id="log-ventas" class="p-4 overflow-y-auto flex-grow scroll-tech space-y-3 bg-slate-50/50"></div>
+                    <div class="p-5 border-t border-slate-100 bg-white">
+                        <button onclick="exportarExcel()" class="w-full bg-emerald-600 text-white py-4 rounded-2xl font-800 flex items-center justify-center gap-3 hover:bg-emerald-700 transition-all shadow-lg">
+                            <i data-lucide="download" class="w-4 h-4"></i> EXCEL DEL DÍA
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="vista-reportes" class="hidden">
+            <div class="tarjeta-premium p-10 mb-10 header-verde flex justify-between items-center">
+                <h2 class="text-3xl font-800 text-white tracking-tighter">Estadísticas de Negocio</h2>
+                <button onclick="cambiarVista('dashboard')" class="bg-white text-emerald-700 px-8 py-4 rounded-2xl font-800">Volver</button>
+            </div>
+            <div id="stats-grid" class="grid grid-cols-1 md:grid-cols-4 gap-8 mb-10"></div>
+            <div class="tarjeta-premium p-10 h-[450px]"><canvas id="chartCabinas"></canvas></div>
+        </div>
+    </main>
+
+    <script>
+        const CLAVE_ADMIN = "27172115";
+        let ventas = JSON.parse(localStorage.getItem('qn_gx_ventas')) || [];
+        let estadoCabinas = JSON.parse(localStorage.getItem('qn_gx_estado')) || Array(6).fill().map((_, i) => ({
+            id: i + 1, inicio: null, tipo: 'libre', tiempoContratado: 0, finalizado: false
+        }));
+
+        function init() {
+            actualizarRelojGlobal();
+            setInterval(actualizarRelojGlobal, 1000);
+            renderCabinas();
+            actualizarInterfaz();
+            estadoCabinas.forEach(c => { if(c.inicio) iniciarReloj(c.id); });
+            lucide.createIcons();
+        }
+
+        function actualizarRelojGlobal() {
+            const d = new Date();
+            document.getElementById('reloj-global').innerText = d.toLocaleTimeString('es-PE', {hour12:false});
+            document.getElementById('fecha-actual').innerText = d.toLocaleDateString('es-PE', {weekday:'long', day:'numeric', month:'long'});
+        }
+
+        function renderCabinas() {
+            const container = document.getElementById('contenedor-cabinas');
+            container.innerHTML = '';
+            estadoCabinas.forEach(c => {
+                const act = c.inicio !== null;
+                const hClass = act ? 'header-rojo' : 'header-verde';
+                container.innerHTML += `
+                    <div class="tarjeta-premium flex flex-col h-full border-b-8 ${act ? 'border-red-500' : 'border-emerald-500'}">
+                        <div class="${hClass} p-5 flex justify-between items-center text-white">
+                            <span class="font-900 text-[10px] tracking-widest uppercase">Cabina -${c.id}</span>
+                            <span class="text-[9px] font-bold uppercase opacity-80">${act ? 'En Uso' : 'Libre'}</span>
+                        </div>
+                        <div class="p-8 text-center flex-grow flex flex-col justify-center">
+                            <p id="reloj-${c.id}" class="text-6xl font-800 timer-font text-slate-800 tracking-tighter">00:00</p>
+                            <div class="mt-4 flex flex-col items-center">
+                                <span id="cobro-${c.id}" class="text-blue-600 font-900 text-lg ${act ? '' : 'invisible'}">S/ 0.00</span>
+                                <span class="text-[9px] font-bold text-slate-400 uppercase mt-1 tracking-widest">${act ? 'Costo Actual' : 'Esperando Cliente'}</span>
+                            </div>
+                        </div>
+                        <div class="p-6 bg-slate-50 border-t border-slate-100">
+                            <button onclick="gestionarCabina(${c.id})" class="w-full py-4 rounded-2xl bg-white border border-slate-200 font-900 text-xs tracking-widest uppercase hover:bg-slate-900 hover:text-white transition-all">
+                                INICIAR
+                            </button>
+                        </div>
+                    </div>
+                `;
+            });
+            lucide.createIcons();
+        }
+
+        function gestionarCabina(id) {
+            const c = estadoCabinas.find(x => x.id === id);
+            if(!c.inicio) {
+                abrirModal(`
+                    <div class="text-center">
+                        <h2 class="text-2xl font-900 mb-8 uppercase tracking-tighter">Nueva Sesión: 0${id}</h2>
+                        <div class="grid grid-cols-2 gap-4 mb-8">
+                            ${[30, 60, 90, 120, 150, 180].map(m => `
+                                <button onclick="iniciar(${id}, ${m})" class="p-5 bg-slate-50 hover:bg-blue-600 hover:text-white rounded-3xl font-800 border-2 border-slate-100 transition-all text-slate-700">
+                                    ${m} MINUTOS
+                                </button>
+                            `).join('')}
+                        </div>
+                        <button onclick="iniciar(${id}, null)" class="w-full p-6 bg-emerald-500 text-white rounded-[30px] font-900 text-lg shadow-xl mb-6 uppercase">TIEMPO LIBRE</button>
+                        <button onclick="cerrarModal()" class="text-slate-400 font-bold text-xs uppercase">Cerrar</button>
+                    </div>
+                `);
+            } else { verMenuActivo(id); }
+        }
+
+        function verMenuActivo(id) {
+            const c = estadoCabinas.find(x => x.id === id);
+            const mins = Math.floor((Date.now() - c.inicio) / 60000);
+            const costo = calcularCosto(mins);
+            abrirModal(`
+                <div class="text-center">
+                    <h2 class="text-xl font-900 mb-6 uppercase">Estado Cabina 0${id}</h2>
+                    <div class="bg-blue-50 p-10 rounded-[40px] border border-blue-100 mb-10">
+                        <p class="text-7xl font-800 text-blue-600 timer-font">S/ ${costo.toFixed(2)}</p>
+                    </div>
+                    <div class="grid grid-cols-1 gap-4">
+                        <button onclick="abrirAumentar(${id})" class="bg-blue-600 text-white p-6 rounded-3xl font-800 text-lg">AUMENTAR</button>
+                        <button onclick="finalizarTurno(${id})" class="bg-red-500 text-white p-6 rounded-3xl font-800 text-lg">SALIR Y COBRAR</button>
+                        <button onclick="cerrarModal()" class="text-slate-400 font-bold mt-4">VOLVER</button>
+                    </div>
+                </div>
+            `);
+        }
+
+        function abrirAumentar(id) {
+            abrirModal(`
+                <h2 class="text-2xl font-900 mb-8 text-center uppercase">Agregar Tiempo</h2>
+                <div class="grid grid-cols-2 gap-4 mb-8">
+                    ${[30, 60, 90, 120, 150, 180].map(m => `
+                        <button onclick="aumentar(${id}, ${m})" class="p-6 bg-slate-50 hover:bg-slate-900 hover:text-white rounded-3xl font-800 border-2 border-slate-100 transition-all">+ ${m} MIN</button>
+                    `).join('')}
+                </div>
+                <button onclick="verMenuActivo(${id})" class="text-slate-400 font-bold uppercase text-[10px]">Atrás</button>
+            `);
+        }
+
+        function iniciar(id, m) {
+            const c = estadoCabinas.find(x => x.id === id);
+            c.inicio = Date.now(); c.tipo = m ? 'prepago' : 'libre'; c.tiempoContratado = m; c.finalizado = false;
+            guardarYRefrescar(); iniciarReloj(id); cerrarModal();
+        }
+
+        function aumentar(id, m) {
+            const c = estadoCabinas.find(x => x.id === id);
+            c.tiempoContratado += m; c.finalizado = false; c.tipo = 'prepago';
+            guardarYRefrescar(); cerrarModal();
+        }
+
+        function iniciarReloj(id) {
+            const c = estadoCabinas.find(x => x.id === id);
+            const intv = setInterval(() => {
+                if(!c.inicio) { clearInterval(intv); return; }
+                const tSeg = Math.floor((Date.now() - c.inicio) / 1000);
+                const tMin = Math.floor(tSeg / 60);
+                if(c.tipo === 'prepago' && tMin >= c.tiempoContratado && !c.finalizado) {
+                    c.finalizado = true; new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3').play();
+                    verMenuActivo(id);
+                }
+                const r = document.getElementById(`reloj-${id}`);
+                const cb = document.getElementById(`cobro-${id}`);
+                if(r) r.innerText = formatearHms(c.tipo === 'prepago' ? (c.tiempoContratado * 60) - tSeg : tSeg);
+                if(cb) cb.innerText = "S/ " + calcularCosto(tMin).toFixed(2);
+            }, 1000);
+        }
+
+        function finalizarTurno(id) {
+            const c = estadoCabinas.find(x => x.id === id);
+            const mins = Math.floor((Date.now() - c.inicio) / 60000);
+            const monto = calcularCosto(mins);
+            if(monto > 0) registrarVenta(`Cabina 0${id} (${mins}m)`, monto);
+            c.inicio = null; c.finalizado = false;
+            guardarYRefrescar(); cerrarModal();
+        }
+
+        function calcularCosto(m) {
+            if (m < 5) return 0.00;
+            return Math.ceil((m - 5) / 30) * 0.50 + 0.50; 
+        }
+
+        function registrarVenta(det, mon) {
+            ventas.push({ id: Date.now(), fecha: new Date(), detalle: det, monto: parseFloat(mon) });
+            localStorage.setItem('qn_gx_ventas', JSON.stringify(ventas));
+            actualizarInterfaz();
+        }
+
+        // Función para pedir contraseña antes de borrar
+        function validarBorrado(id) {
+            pedirPass('eliminar', id);
+        }
+
+        function borrarVentaConfirmada(id) {
+            ventas = ventas.filter(v => v.id !== id);
+            localStorage.setItem('qn_gx_ventas', JSON.stringify(ventas));
+            actualizarInterfaz();
+            cerrarModal();
+        }
+
+        function actualizarInterfaz() {
+            const hoy = new Date().toLocaleDateString();
+            const vHoy = ventas.filter(v => new Date(v.fecha).toLocaleDateString() === hoy);
+            document.getElementById('total-caja').innerText = `S/ ${vHoy.reduce((a, b) => a + b.monto, 0).toFixed(2)}`;
+            const log = document.getElementById('log-ventas');
+            log.innerHTML = vHoy.slice().reverse().map(v => `
+                <div class="p-4 bg-white rounded-2xl border border-slate-100 flex justify-between items-center shadow-sm">
+                    <div class="flex items-center gap-3">
+                        <button onclick="validarBorrado(${v.id})" class="bg-red-50 text-red-500 p-2 rounded-xl hover:bg-red-500 hover:text-white transition-all">
+                            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                        </button>
+                        <div>
+                            <p class="font-800 text-slate-800 text-[10px] uppercase tracking-tight">${v.detalle}</p>
+                            <p class="text-[8px] text-slate-400 font-bold uppercase">${new Date(v.fecha).toLocaleTimeString()}</p>
+                        </div>
+                    </div>
+                    <span class="font-900 text-slate-900 text-xs">S/ ${v.monto.toFixed(2)}</span>
+                </div>
+            `).join('') || '<p class="text-center py-10 text-slate-300 font-bold uppercase text-[10px]">Sin ventas</p>';
+            lucide.createIcons();
+        }
+
+        function modalImpresion(t, p) {
+            abrirModal(`
+                <div class="text-center">
+                    <h2 class="text-3xl font-900 mb-10 uppercase tracking-tighter">Hojas ${t}</h2>
+                    <div class="flex items-center justify-center gap-8 mb-12">
+                        <button onclick="this.nextElementSibling.stepDown()" class="w-16 h-16 rounded-full bg-slate-50 flex items-center justify-center text-3xl font-900 border-2 border-slate-100">-</button>
+                        <input type="number" id="hojas" value="1" min="1" class="w-24 text-center text-6xl font-900 bg-transparent outline-none">
+                        <button onclick="this.previousElementSibling.stepUp()" class="w-16 h-16 rounded-full bg-slate-50 flex items-center justify-center text-3xl font-900 border-2 border-slate-100">+</button>
+                    </div>
+                    <button onclick="venderImp('${t}', ${p})" class="w-full bg-blue-600 text-white p-6 rounded-[30px] font-900 text-xl shadow-xl uppercase">Registrar S/ ${p.toFixed(2)} c/u</button>
+                    <button onclick="cerrarModal()" class="text-slate-400 font-bold mt-8 block w-full text-xs uppercase">Cancelar</button>
+                </div>
+            `);
+        }
+
+        function venderImp(t, p) { 
+            const cant = document.getElementById('hojas').value;
+            registrarVenta(`Imp. ${t} (x${cant})`, cant * p); cerrarModal(); 
+        }
+
+        function exportarExcel() {
+            const hoy = new Date().toLocaleDateString();
+            const vHoy = ventas.filter(v => new Date(v.fecha).toLocaleDateString() === hoy);
+            if(vHoy.length === 0) return alert("Nada que exportar.");
+            const data = vHoy.map(v => ({ FECHA: new Date(v.fecha).toLocaleDateString(), HORA: new Date(v.fecha).toLocaleTimeString(), DETALLE: v.detalle, MONTO: v.monto }));
+            const ws = XLSX.utils.json_to_sheet(data);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Ventas");
+            XLSX.writeFile(wb, `QuinuaGamer_Caja_${hoy.replace(/\//g,'-')}.xlsx`);
+        }
+
+        function guardarYRefrescar() {
+            localStorage.setItem('qn_gx_estado', JSON.stringify(estadoCabinas));
+            renderCabinas(); actualizarInterfaz();
+        }
+
+        function abrirModal(h) { document.getElementById('modalBody').innerHTML = h; document.getElementById('modalMaster').classList.add('active'); lucide.createIcons(); }
+        function cerrarModal() { document.getElementById('modalMaster').classList.remove('active'); }
+        function formatearHms(s) { const absS = Math.abs(s); const m = Math.floor(absS / 60), sc = absS % 60; return `${m.toString().padStart(2,'0')}:${sc.toString().padStart(2,'0')}`; }
+        
+        function pedirPass(accion, extraId = null) {
+            abrirModal(`
+                <div class="text-center">
+                    <h2 class="text-2xl font-900 mb-8 uppercase tracking-tighter">Autorización Requerida</h2>
+                    <input type="password" id="adminPass" class="w-full text-center text-6xl p-6 bg-slate-50 rounded-[35px] mb-10 outline-none border-2 border-slate-100" autofocus>
+                    <div class="grid grid-cols-2 gap-4">
+                        <button onclick="validarAccion('${accion}', ${extraId})" class="bg-slate-900 text-white p-6 rounded-[30px] font-900">VERIFICAR</button>
+                        <button onclick="cerrarModal()" class="bg-slate-100 text-slate-500 p-6 rounded-[30px] font-bold">CANCELAR</button>
+                    </div>
+                </div>
+            `);
+        }
+
+        function validarAccion(accion, id) {
+            const pin = document.getElementById('adminPass').value;
+            if(pin === CLAVE_ADMIN) {
+                if(accion === 'reportes') { cerrarModal(); cambiarVista('reportes'); }
+                if(accion === 'eliminar') { borrarVentaConfirmada(id); }
+            } else {
+                alert("PIN INCORRECTO");
+            }
+        }
+
+        function cambiarVista(v) { 
+            document.getElementById('vista-dashboard').classList.toggle('hidden', v !== 'dashboard'); 
+            document.getElementById('vista-reportes').classList.toggle('hidden', v !== 'reportes'); 
+            if(v === 'reportes') generarReportes(); 
+        }
+
+        function generarReportes() {
+            const vHoy = ventas.filter(v => new Date(v.fecha).toLocaleDateString() === new Date().toLocaleDateString());
+            const totalH = vHoy.reduce((a,b)=>a+b.monto,0);
+            const stats = [
+                { l: 'Caja Hoy', v: totalH, c: 'text-emerald-600', i: 'banknote' },
+                { l: 'Total General', v: ventas.reduce((a,b)=>a+b.monto,0), c: 'text-blue-600', i: 'database' },
+                { l: 'Ticket Prom.', v: totalH / (vHoy.length || 1), c: 'text-purple-600', i: 'trending-up' },
+                { l: 'Total Trans.', v: vHoy.length, c: 'text-slate-800', i: 'hash', n:true }
+            ];
+            document.getElementById('stats-grid').innerHTML = stats.map(s => `
+                <div class="tarjeta-premium p-8">
+                    <p class="text-[11px] font-800 uppercase tracking-widest mb-4 opacity-50">${s.l}</p>
+                    <p class="text-4xl font-900 ${s.c}">${s.n ? '' : 'S/ '}${s.n ? s.v : s.v.toFixed(2)}</p>
+                </div>
+            `).join('');
+            lucide.createIcons();
+
+            const ctx = document.getElementById('chartCabinas').getContext('2d');
+            const data = [1,2,3,4,5,6].map(id => ventas.filter(v => v.detalle.includes(`0${id}`)).reduce((a, b) => a + b.monto, 0));
+            if(window.myChart) window.myChart.destroy();
+            window.myChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['C1', 'C2', 'C3', 'C4', 'C5', 'C6'],
+                    datasets: [{ label: 'S/', data: data, backgroundColor: '#2563eb', borderRadius: 8 }]
+                },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+            });
+        }
+        init();
+    </script>
+</body>
+</html>
+
